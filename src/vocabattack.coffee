@@ -7,18 +7,49 @@ keys =
     up: 38
     right: 39
     down: 40
+    space: 32
 
-letters = 'abcdefghijklmnopqrstuvwxyz'
+letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 randomLetter = -> letters[Math.floor(Math.random()*(letters.length))]
 letterColors = {}
 
 class Rect
-    constructor: (@x, @y, @width, @height) ->
+    constructor: (x, y, width, height) ->
+        if x instanceof Rect
+            @x = x.x
+            @y = x.y
+            @width = x.width
+            @height = x.height
+        else
+            @x = x
+            @y = y
+            @width = width
+            @height = height
 
-    bottom: -> @height - 1
+    toString: -> '[Rect ' + @x + ' ' + @y + ' ' + @width + ' ' + @height + ']'
+    translate: (pt) -> new Rect(@x + pt.x, @y + pt.y, @width, @height)
+    position: -> new Point(@x, @y)
+
     left: -> @x
+    top: -> @y
+    bottom: -> @height
+    right: -> @x + @width
+
+    clamp: (rect) ->
+        r = new Rect(@x, @y, @width, @height)
+        if r.x + r.width >= rect.right()
+            r.x = rect.right() - r.width
+        if r.y + r.height >= rect.bottom()
+            r.y = rect.bottom() - r.height
+        if r.x < rect.x
+            r.x = rect.x
+        if r.y < rect.y
+            r.y = rect.y
+        return r
 
 class Point
+    toString: -> "[Point " + @x + " " + @y + "]"
+
     constructor: (x, y) ->
         if x instanceof Point
             @x = x.x
@@ -36,34 +67,48 @@ class Point
         return pt
 
     add: (otherPt) ->
-        return Point(@x + otherPt.x, @y + otherPt.y)
+        new Point(@x + otherPt.x, @y + otherPt.y)
 
 for letter in letters
     letterColors[letter] = Raphael.getColor()
 
 class Player
     constructor: (ctx, @board) ->
-        @pos = new Point(@board.rect.left, @board.rect.bottom)
-        @orientation = HORIZONTAL
-        @el = ctx.rect(0, 0, @board.cellWidth*2, @board.cellHeight).attr
-            stroke: 'red'
-            fill: 'blue'
-            'fill-opacity': '50%'
+        @rect = new Rect(@board.rect.x, @board.rect.bottom()-1, 2, 1)
+        @setOrientation(HORIZONTAL)
+        @el = ctx.rect(0, 0, @board.cellWidth*2, @board.cellHeight, 15).attr
+            stroke: 'white'
+            'stroke-width': '5px'
         @updateElem()
+    
+    setOrientation: ->
+        @orientation = HORIZONTAL
 
-    left: -> delta(-1, 0)
-    right: -> delta(1, 0)
-    up: -> delta(0, -1)
-    down: -> delta(0, 1)
+    left: -> @delta(new Point(-1, 0))
+    right: -> @delta(new Point(1, 0))
+    up: -> @delta(new Point(0, -1))
+    down: -> @delta(new Point(0, 1))
 
     delta: (pt) ->
-        @pos = @pos.add(pt).clamp(@board.rect)
+        @rect = @rect.translate(pt).clamp(@board.rect)
         @updateElem()
 
+    space: (pos) ->
+        if @orientation == HORIZONTAL
+            new Point(@rect.x + pos, @rect.y)
+        else
+            new Point(@rect.x, @rect.y + pos)
+
+    swapLetters: ->
+        @board.swap(@space(0), @space(1))
+
     updateElem: ->
-        @el.attr
-            x: @pos.x
-            y: @pos.y
+        @el.animate({
+            x: @rect.x * @board.cellWidth
+            y: @rect.y * @board.cellHeight
+            width: @rect.width * @board.cellWidth
+            height: @rect.height * @board.cellHeight
+        }, 15, 'backOut')
 
 class Board
     constructor: (@w, @h, @cellWidth, @cellHeight) ->
@@ -75,43 +120,56 @@ class Board
                 row.push(EMPTY)
             @cells.push(row)
 
-    set: (x, y, letter) ->
-        @cells[y][x] = letter
+    set: (pt, letter) ->
+        @cells[pt.y][pt.x] = letter
+
+    get: (pt) -> @cells[pt.y][pt.x]
+
+    swap: (pt1, pt2) ->
+        a = @get(pt1)
+        b = @get(pt2)
+
+        @set(pt1, b)
+        @set(pt2, a)
+
     
-    draw: (ctx) ->
+    draw: () ->
         x = 0
         y = 0
+
+        if @elset then @elset.remove()
+        @elset = @ctx.set()
+        
         for row in @cells
             for letter in row
                 if letter != EMPTY
                     xPos = x * @cellWidth
                     yPos = y * @cellHeight
 
-                    r = ctx.rect(xPos, yPos, @cellWidth, @cellHeight, 5)
+                    r = @ctx.rect(xPos, yPos, @cellWidth, @cellHeight, 5)
                     r.attr
                         fill: letterColors[letter]
                         stroke: 'none'
 
                     textX = xPos + @cellWidth/2
                     textY = yPos + @cellHeight / 2
-                    textHighlight = ctx.text(textX+1, textY+1, letter).attr
+                    textHighlight = @ctx.text(textX+1, textY+1, letter).attr
                         fill: 'black'
                         'font-size': '15px'
                     textHighlight.blur(1)
 
-                    text = ctx.text(textX, textY, letter).attr
+                    text = @ctx.text(textX, textY, letter).attr
                         fill: 'white'
                         'font-size': '15px'
 
-                    letterBox = ctx.set([r, textHighlight, text])
+                    @elset.push([r, textHighlight, text])
                 x += 1
             y += 1
             x = 0
         
-        
 Game = ->
     notepad = $('#notepad')
-    ctx = Raphael('notepad', 640, 480)
+    ctx = Raphael('notepad', window.innerWidth - 25, window.innerHeight - 25)
 
     gridCellWidth = 40
     gridCellHeight = 40
@@ -139,23 +197,29 @@ Game = ->
         board = new Board(w, h, gridCellWidth, gridCellHeight)
         for y in [Math.floor(.5*h)..h-1]
             for x in [0..w-1]
-                board.set(x, y, randomLetter())
+                board.set(new Point(x, y), randomLetter())
         return board
 
     drawGrid(gameBoard.width, gameBoard.height)
     board = generateFreshBoard(gameBoard.width, gameBoard.height)
-    board.draw(ctx)
+    board.ctx = ctx
+    board.draw()
 
     player = new Player(ctx, board)
     $(document).keydown (e) ->
-        if e.keyCode == keys.right then player.right
-        if e.keyCode == keys.left then player.left
-        if e.keyCode == keys.down then player.down
-        if e.keyCode == keys.up then player.up
-
+        switch e.keyCode
+            when keys.right then player.right()
+            when keys.left then player.left()
+            when keys.down then player.down()
+            when keys.up then player.up()
+            when keys.space then player.swapLetters()
 
 go = ->
     game = Game()
 
 $(go)
+
+
+window.Rect = Rect
+window.Point = Point
 
