@@ -2,6 +2,48 @@ EMPTY = ' '
 HORIZONTAL = 0
 VERTICAL = 1
 
+$.extend(CanvasRenderingContext2D.prototype, {
+    saved: (func) ->
+        this.save()
+        res = func()
+        this.restore()
+        return res
+
+    clipped: (rect, func) ->
+        res = undefined
+        @saved =>
+            @rect(rect.x, rect.y, rect.width, rect.height)
+            @clip()
+            res = func()
+        return res
+
+    fillRoundedRect: (x, y, w, h, r) ->
+        @beginPath()
+        @moveTo(x+r, y)
+        @lineTo(x+w-r, y)
+        @quadraticCurveTo(x+w, y, x+w, y+r)
+        @lineTo(x+w, y+h-r)
+        @quadraticCurveTo(x+w, y+h, x+w-r, y+h)
+        @lineTo(x+r, y+h)
+        @quadraticCurveTo(x, y+h, x, y+h-r)
+        @lineTo(x, y+r)
+        @quadraticCurveTo(x, y, x+r, y)
+        @fill()
+})
+
+
+gridCellWidth = 40
+gridCellHeight = 40
+
+gameBoard =
+    width: 7
+    height: 12
+clearCanvas = (canvas) -> canvas.width = canvas.width
+
+window.dictionaryTrie = null
+isWord = (word) ->
+    window.dictionaryTrie.test(word)
+
 keys =
     left: 37
     up: 38
@@ -9,9 +51,13 @@ keys =
     down: 40
     space: 32
 
-letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-randomLetter = -> letters[Math.floor(Math.random()*(letters.length))]
-letterColors = {}
+reqAnim =
+  window.requestAnimationFrame       ||
+  window.webkitRequestAnimationFrame ||
+  window.mozRequestAnimationFrame    ||
+  window.oRequestAnimationFrame      ||
+  window.msRequestAnimationFrame     ||
+  (callback, element) -> window.setTimeout(callback, 1000 / 30)
 
 class Rect
     constructor: (x, y, width, height) ->
@@ -69,17 +115,20 @@ class Point
     add: (otherPt) ->
         new Point(@x + otherPt.x, @y + otherPt.y)
 
+letters = 'abcdefghijklmnopqrstuvwxyz'
+randomLetter = -> letters[Math.floor(Math.random()*(letters.length))]
+
+letterColors = {}
+
 for letter in letters
     letterColors[letter] = Raphael.getColor()
 
 class Player
     constructor: (ctx, @board) ->
-        @rect = new Rect(@board.rect.x, @board.rect.bottom()-1, 2, 1)
+        @rect = new Rect(@board.rect.x, @board.rect.bottom()-2, 2, 1)
         @setOrientation(HORIZONTAL)
-        @el = ctx.rect(0, 0, @board.cellWidth*2, @board.cellHeight, 15).attr
-            stroke: 'white'
-            'stroke-width': '5px'
-        @updateElem()
+        #$(@board).bind 'newRow', =>
+            #@rect.y += 1
     
     setOrientation: ->
         @orientation = HORIZONTAL
@@ -90,8 +139,8 @@ class Player
     down: -> @delta(new Point(0, 1))
 
     delta: (pt) ->
-        @rect = @rect.translate(pt).clamp(@board.rect)
-        @updateElem()
+        r = @board.rect
+        @rect = @rect.translate(pt).clamp(new Rect(r.x, r.y, r.width, r.height-1))
 
     space: (pos) ->
         if @orientation == HORIZONTAL
@@ -100,18 +149,29 @@ class Player
             new Point(@rect.x, @rect.y + pos)
 
     swapLetters: ->
-        @board.swap(@space(0), @space(1))
+        words = @board.swap(@space(0), @space(1))
+        words.sort (a, b) -> b.word.length - a.word.length
+        if words.length
+            wordInfo = words[0]
+            @board.removeWord(wordInfo)
 
-    updateElem: ->
-        @el.animate({
-            x: @rect.x * @board.cellWidth
-            y: @rect.y * @board.cellHeight
-            width: @rect.width * @board.cellWidth
-            height: @rect.height * @board.cellHeight
-        }, 15, 'backOut')
+    draw: (ctx) ->
+        x = @rect.x * @board.cellWidth
+        y = @rect.y * @board.cellHeight
+        width = @rect.width * @board.cellWidth
+        height = @rect.height * @board.cellHeight
+
+        ctx.strokeStyle = 'white'
+        ctx.lineWidth = 5
+
+        ctx.saved ->
+            ctx.translate(0, -@board.rowDeltaPixels())
+            ctx.strokeRect(x, y, width, height)
 
 class Board
+    $.extend(this, Events)
     constructor: (@w, @h, @cellWidth, @cellHeight) ->
+        @rowDelta = 0
         @rect = new Rect(0, 0, @w, @h)
         @cells = []
         for y in [0..@h-1]
@@ -119,6 +179,9 @@ class Board
             for x in [0..@w-1]
                 row.push(EMPTY)
             @cells.push(row)
+
+    rowDeltaPixels: ->
+        return @rowDelta * @cellHeight
 
     set: (pt, letter) ->
         @cells[pt.y][pt.x] = letter
@@ -132,78 +195,181 @@ class Board
         @set(pt1, b)
         @set(pt2, a)
 
+        words = []
+        for row in set([pt1.y, pt2.y])
+            words = words.concat(@testRow(row))
+        for col in set([pt1.x, pt2.x])
+            words = words.concat(@testCol(col))
+        
+        return words
+
+    removeWord: (wordInfo) ->
+        pt = new Point(wordInfo.pt)
+        length = wordInfo.wordLength
+
+        while length--
+            @set(pt, EMPTY)
+            fallPt = new Point(pt)
+            for y in [pt.y-1..1]
+                sourceLetter = @get(new Point(fallPt.x, y))
+                dest = new Point(fallPt.x, fallPt.y)
+                @set(dest, sourceLetter)
+                fallPt.y -= 1
+            pt = pt.add(new Point(1, 0))
+
+        $('#completedWords').append($('<div>').text(wordInfo.word))
+
+    testRow: (row) ->
+        words = []
+        for wordWidth in [2..@rect.width]
+            col = 0
+            while col + wordWidth < @rect.width+1
+                pt = new Point(col, row)
+                wordInfo = @getHWord(pt, wordWidth)
+                if isWord(wordInfo.word)
+                    words.push(wordInfo)
+                col += 1
+
+        return words
+
+    getHWord: (pt, wordLength) ->
+        wordPt = new Point(pt)
+        word = ''
+        originalWordLength = wordLength
+        while wordLength
+            word += @cells[wordPt.y][wordPt.x]
+            wordPt.x += 1
+            wordLength -= 1
+        return {pt: pt, wordLength: originalWordLength, word: word}
+
+    testCol: (col) ->
+        return []
     
+    process: (delta) ->
+        if not @gotNextRow
+            @gotNextRow = true
+            #nextRow = generateRow()
+
+        @rowDelta += delta/12000
+        if @rowDelta > 1
+            @newRow()
+            @rowDelta = 0
+
+    newRow: ->
+        # check for game over state
+        for x in [0..@rect.width-1]
+            if @get(new Point(x, y)) != EMPTY
+                alert('GAME OVER')
+
+        # move all blocks up one
+        for y in [1..@rect.height-2]
+            for x in [0..@rect.width-1]
+                @set(new Point(x, y), @get(new Point(x, y+1)))
+
+        # fill in new row
+        @generateRow(@rect.height-1, true)
+        #$(this).trigger('newRow')
+
     draw: () ->
         x = 0
         y = 0
 
-        if @elset then @elset.remove()
-        @elset = @ctx.set()
-        
-        for row in @cells
-            for letter in row
-                if letter != EMPTY
-                    xPos = x * @cellWidth
-                    yPos = y * @cellHeight
+        @ctx.textAlign = 'center'
+        @ctx.textBaseline = 'middle'
 
-                    r = @ctx.rect(xPos, yPos, @cellWidth, @cellHeight, 5)
-                    r.attr
-                        fill: letterColors[letter]
-                        stroke: 'none'
+        clipRect = new Rect(@rect.x, @rect.y, (@rect.width+4)*@cellWidth, (@rect.height-1)*@cellHeight)
 
-                    textX = xPos + @cellWidth/2
-                    textY = yPos + @cellHeight / 2
-                    textHighlight = @ctx.text(textX+1, textY+1, letter).attr
-                        fill: 'black'
-                        'font-size': '15px'
-                    textHighlight.blur(1)
+        @ctx.clipped clipRect, =>
+            @ctx.translate(0, -@rowDeltaPixels())
+            for row in @cells
+                for letter in row
+                    if letter != EMPTY
+                        xPos = x * @cellWidth
+                        yPos = y * @cellHeight
 
-                    text = @ctx.text(textX, textY, letter).attr
-                        fill: 'white'
-                        'font-size': '15px'
+                        # colored background
+                        @ctx.fillStyle = letterColors[letter]
+                        @ctx.fillRoundedRect(xPos, yPos, @cellWidth, @cellHeight, 5)
 
-                    @elset.push([r, textHighlight, text])
-                x += 1
-            y += 1
-            x = 0
+                        textX = xPos + @cellWidth/2
+                        textY = yPos + @cellHeight / 2
+
+                        # shadow
+                        @ctx.fillStyle = 'black'
+                        @ctx.font = "bold 15px Helvetica, Arial"
+                        @ctx.fillText(letter.toUpperCase(), textX+1, textY+1)
+
+                        # text
+                        @ctx.fillStyle = 'white'
+                        @ctx.fillText(letter.toUpperCase(), textX, textY)
+
+                    x += 1
+                y += 1
+                x = 0
+
+    randomLetterAt: (x, y) ->
+        @set(new Point(x, y), randomLetter())
+
+    generateRow: (y, ensureNoWords) ->
+        _doit = =>
+            for x in [0..@rect.width-1]
+                @randomLetterAt(x, y)
+
+        if ensureNoWords
+            while ensureNoWords
+                _doit()
+                ensureNoWords = board.testRow(y).length > 0
+        else
+            _doit()
+
+
+    @generateFreshBoard: (w, h) ->
+        board = new Board(w, h, gridCellWidth, gridCellHeight)
+
+        genCol = (startY, x) ->
+            for y in [0..h-1]
+                @randomLetterAt(x, y)
+
+        startY = Math.floor(.5*h)
+
+        for y in [startY..h-1]
+            board.generateRow(y)
+
+        checkAgain = true
+        while checkAgain
+            checkAgain = false
+            for row in [0..h-1]
+                while board.testRow(row).length > 0
+                    checkAgain = true
+                    board.generateRow(row)
+
+            for col in [0..w-1]
+                while board.testCol(col).length > 0
+                    checkAgain = true
+                    genCol(startY, col)
+
+        return board
+
         
 Game = ->
-    notepad = $('#notepad')
-    ctx = Raphael('notepad', window.innerWidth - 25, window.innerHeight - 25)
-
-    gridCellWidth = 40
-    gridCellHeight = 40
-
-    gameBoard =
-        width: 8
-        height: 15
+    canvas = $('#gameCanvas')[0]
+    canvas.width = 400
+    canvas.height = window.innerHeight - 25
+    ctx = canvas.getContext('2d')
 
     drawGrid = (w, h) ->
-        rects = []
+        ctx.strokeStyle = '#c0c0c0'
+        ctx.lineWidth = .5
         for y in [0..h-1]
             for x in [0..w-1]
-                r = ctx.rect(x * gridCellWidth,
+                ctx.strokeRect(x * gridCellWidth,
                              y * gridCellHeight,
                              gridCellWidth,
                              gridCellHeight)
-                r.attr
-                    stroke: '#efefef'
-                rects.push(r)
 
-        return rects
-
-
-    generateFreshBoard = (w, h) ->
-        board = new Board(w, h, gridCellWidth, gridCellHeight)
-        for y in [Math.floor(.5*h)..h-1]
-            for x in [0..w-1]
-                board.set(new Point(x, y), randomLetter())
-        return board
-
-    drawGrid(gameBoard.width, gameBoard.height)
-    board = generateFreshBoard(gameBoard.width, gameBoard.height)
+    board = Board.generateFreshBoard(gameBoard.width, gameBoard.height)
     board.ctx = ctx
-    board.draw()
+    window.board = board # TODO: remove
 
     player = new Player(ctx, board)
     $(document).keydown (e) ->
@@ -214,11 +380,54 @@ Game = ->
             when keys.up then player.up()
             when keys.space then player.swapLetters()
 
-go = ->
-    game = Game()
+    animLoop = ->
+        render()
+        reqAnim(animLoop)
 
-$(go)
+    entities = [board, player]
 
+    prev = new Date().getTime()
+    render = ->
+        now = new Date().getTime()
+        delta = now - prev
+        prev = now
+
+        for entity in entities
+            if entity.process
+                entity.process(delta)
+
+        clearCanvas(canvas)
+
+        drawGrid(gameBoard.width, gameBoard.height-1)
+        
+        for entity in entities
+            ctx.saved ->
+                entity.draw(ctx)
+
+    game = {
+        start: ->
+            if not game.running
+                game.running = true
+                game.animLoop()
+        animLoop: animLoop
+    }
+
+    return game
+
+window.dictionary_load = (data) ->
+    realData = []
+    for word in data
+        if word.length > 2
+            realData.push(word)
+
+    window.dictionaryTrie = Trie(realData)
+    if window.game
+        window.game.start()
+
+window.go = ->
+    window.game = Game()
+    if window.dictionaryTrie
+        game.start()
 
 window.Rect = Rect
 window.Point = Point

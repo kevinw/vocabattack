@@ -9,14 +9,27 @@
                 bottom: 0;
                 top: 0;
             }
+
+            #completedWords {
+                font-size: 20px;
+                font-family: arial;
+                font-weight: bold;
+            }
         </style>
         <script src="lib/jquery-1.6.1.js"></script>
         <script src="lib/raphael.js"></script>
-        <script src="lib/raphael.blur.js"></script>
+        <script src="lib/util.js"></script>
         <script src="generated/vocabattack.js"></script>    
+
+        <script src="generated/trie.js"></script>
+        <script src="lib/dictionary.js"></script>
+
     </head>
     <body>
-        <div id="notepad">
-        </div>
+        <canvas id="gameCanvas" style="float: left;"></canvas>
+        <div id="completedWords"></div>
+        <script>
+            $(function() { window.go(); });
+        </script>
     </body>
 </html>
