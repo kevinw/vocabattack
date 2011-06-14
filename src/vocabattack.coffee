@@ -127,8 +127,8 @@ class Player
     constructor: (ctx, @board) ->
         @rect = new Rect(@board.rect.x, @board.rect.bottom()-2, 2, 1)
         @setOrientation(HORIZONTAL)
-        #$(@board).bind 'newRow', =>
-            #@rect.y += 1
+        @board.bind 'newRow', =>
+            @rect.y -= 1
     
     setOrientation: ->
         @orientation = HORIZONTAL
@@ -169,7 +169,6 @@ class Player
             ctx.strokeRect(x, y, width, height)
 
 class Board
-    $.extend(this, Events)
     constructor: (@w, @h, @cellWidth, @cellHeight) ->
         @rowDelta = 0
         @rect = new Rect(0, 0, @w, @h)
@@ -268,7 +267,7 @@ class Board
 
         # fill in new row
         @generateRow(@rect.height-1, true)
-        #$(this).trigger('newRow')
+        @trigger('newRow')
 
     draw: () ->
         x = 0
@@ -349,6 +348,8 @@ class Board
                     genCol(startY, col)
 
         return board
+
+$.extend(Board.prototype, Events)
 
         
 Game = ->
