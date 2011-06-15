@@ -354,8 +354,9 @@ $.extend(Board.prototype, Events)
         
 Game = ->
     canvas = $('#gameCanvas')[0]
-    canvas.width = 400
-    canvas.height = window.innerHeight - 25
+    canvas.width = cellWidth * gameBoard.width
+    canvas.height = cellHeight * gameBoard.height
+
     ctx = canvas.getContext('2d')
 
     drawGrid = (w, h) ->
@@ -398,6 +399,9 @@ Game = ->
                 entity.process(delta)
 
         clearCanvas(canvas)
+
+        ctx.fillStyle = 'white';
+        
 
         drawGrid(gameBoard.width, gameBoard.height-1)
         

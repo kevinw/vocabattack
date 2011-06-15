@@ -15,6 +15,18 @@
                 font-family: arial;
                 font-weight: bold;
             }
+            .canvasContainer {
+                padding-top: 200px;
+                text-align:center;
+            }
+            .canvasBackground {
+                background: rgba(255, 255, 255, 128);
+                display: inline-block;
+                padding: 30px;
+            }
+            body { 
+                background: #ffffff url('img/bg.jpg') no-repeat fixed top left;
+            }
         </style>
         <script src="lib/jquery-1.6.1.js"></script>
         <script src="lib/raphael.js"></script>
@@ -26,7 +38,11 @@
 
     </head>
     <body>
-        <canvas id="gameCanvas" style="float: left;"></canvas>
+        <div class="canvasContainer">
+            <div class="canvasBackground">
+                <canvas id="gameCanvas" style="float: center;"></canvas>
+            </div>
+        </div>
         <div id="completedWords"></div>
         <script>
             $(function() { window.go(); });
