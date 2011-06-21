@@ -3,6 +3,10 @@
     <head>
         <title>Vocab Attack</title>
         <style>
+            #soundmanager-debug {
+                font-family: monospace;
+                background-color: white;
+            }
             #notepad {
                 left: 0;
                 right: 0;
@@ -11,18 +15,29 @@
             }
 
             #completedWords {
+                float: left;
                 font-size: 20px;
                 font-family: arial;
                 font-weight: bold;
             }
+            #completedWords span {
+               background: #0000cc;
+               border-radius: 5px;
+               color: white;
+               font-weight: bold;
+               padding: 5px;
+               margin: 5px;
+            }
             .canvasContainer {
-                padding-top: 200px;
+                padding-top: 50px;
                 text-align:center;
             }
             .canvasBackground {
-                background: rgba(255, 255, 255, 128);
+                background: #ffffff;
+                border-radius: 10px;
                 display: inline-block;
                 padding: 30px;
+                -webkit-box-shadow: 5px 5px 30px 1px #333333;
             }
             body { 
                 background: #ffffff url('img/bg.jpg') no-repeat fixed top left;
@@ -36,14 +51,16 @@
         <script src="generated/trie.js"></script>
         <script src="lib/dictionary.js"></script>
 
+        <script src="lib/soundmanager2.js"></script>
+        <script>soundSetup();</script>
     </head>
     <body>
+        <div id="completedWords"></div>
         <div class="canvasContainer">
             <div class="canvasBackground">
-                <canvas id="gameCanvas" style="float: center;"></canvas>
+                <canvas id="gameCanvas"></canvas>
             </div>
         </div>
-        <div id="completedWords"></div>
         <script>
             $(function() { window.go(); });
         </script>

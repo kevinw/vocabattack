@@ -139,6 +139,7 @@ class Player
     down: -> @delta(new Point(0, 1))
 
     delta: (pt) ->
+        callAfter -> sounds.move.play()
         r = @board.rect
         @rect = @rect.translate(pt).clamp(new Rect(r.x, r.y, r.width, r.height-1))
 
@@ -154,6 +155,7 @@ class Player
         if words.length
             wordInfo = words[0]
             @board.removeWord(wordInfo)
+            sounds.word.play()
 
     draw: (ctx) ->
         x = @rect.x * @board.cellWidth
@@ -216,7 +218,7 @@ class Board
                 fallPt.y -= 1
             pt = pt.add(new Point(1, 0))
 
-        $('#completedWords').append($('<div>').text(wordInfo.word))
+        $('#completedWords').append($('<span>').text(wordInfo.word))
 
     testRow: (row) ->
         words = []
@@ -354,8 +356,10 @@ $.extend(Board.prototype, Events)
         
 Game = ->
     canvas = $('#gameCanvas')[0]
-    canvas.width = cellWidth * gameBoard.width
-    canvas.height = cellHeight * gameBoard.height
+    canvas.width = gridCellWidth * gameBoard.width
+    canvas.height = gridCellHeight * (gameBoard.height-1)
+
+    console.log(canvas.height)
 
     ctx = canvas.getContext('2d')
 
@@ -437,3 +441,31 @@ window.go = ->
 window.Rect = Rect
 window.Point = Point
 
+window.sounds = {}
+
+loadSound = (id, name) ->
+    sounds[id] = soundManager.createSound
+        id: id
+        url: '/sounds/' + name
+        autoLoad: true
+        autoPlay: false
+        volume: 50
+
+
+window.soundSetup = ->
+    $ ->
+        soundManager.debugMode = false
+        soundManager.url = '/lib/swf/'
+        soundManager.onready ->
+            loadSound('move', 'move.mp3')
+            loadSound('word', 'word.mp3')
+
+callAfter = (func) -> setTimeout(func, 0)
+
+#E ×12, A ×9, I ×9, O ×8, N ×6, R ×6, T ×6, L ×4, S ×4, U ×4
+#D ×4, G ×3
+#B ×2, C ×2, M ×2, P ×2
+#F ×2, H ×2, V ×2, W ×2, Y ×2
+#K ×1
+#J ×1, X ×1
+#Q ×1, Z ×1
