@@ -287,6 +287,7 @@ class Board
     fallLater: (cells) ->
         if cells.length
             @falls.push(
+                now: @now
                 time: @now + 350
                 cells: cells
             )
@@ -392,27 +393,22 @@ class Board
 
         clipRect = new Rect(@rect.x, @rect.y, (@rect.width+4)*@cellWidth, (@rect.height-1)*@cellHeight)
 
-        key = (x, y) -> return '' + x + ',' + y
-
         fallLookup = {}
         hadLookup = false
+        delta = 0
         if @falls.length
-            delta = (@falls[0].time - @now) / @falls[0].time * @cellHeight
+            delta = (@now - @falls[0].now) / (@falls[0].time - @falls[0].now) * @cellHeight
             for cell in @falls[0].cells
-                fallLookup[key(cell.x, cell.y)] = true
+                fallLookup[cell.x] = Math.max(fallLookup[cell.x] || 0, cell.y)
                 hadLookup = true
 
         fallDelta = (x, y) ->
-            if not hadLookup
+            if not hadLookup or not fallLookup[x]
                 return 0
-            k = key(x, y)
-            if fallLookup[k]
-                console.log(k, 'in')
-                console.log(fallLookup)
-                console.log('yes', delta)
-                return delta
-            else
+            if y >= fallLookup[x]
                 return 0
+
+            return delta
 
         x = 0
         y = 0
