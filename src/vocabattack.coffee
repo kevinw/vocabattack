@@ -1,6 +1,54 @@
 EMPTY = ' '
+EMPTY_GRAVITY = '~'
 HORIZONTAL = 0
 VERTICAL = 1
+
+letterFrequencies = [
+    ['a', .08167]
+    ['b', .01492]
+    ['c', .02782]
+    ['d', .04253]
+    ['e', .12702]
+    ['f', .02228]
+    ['g', .02015]
+    ['h', .06094]
+    ['i', .06966]
+    ['j', .00153]
+    ['k', .00772]
+    ['l', .04025]
+    ['m', .02406]
+    ['n', .06749]
+    ['o', .07507]
+    ['p', .01929]
+    ['q', .00095]
+    ['r', .05987]
+    ['s', .06327]
+    ['t', .09056]
+    ['u', .02758]
+    ['v', .00978]
+    ['w', .02360]
+    ['x', .00150]
+    ['y', .01974]
+    ['z', .00074]
+]
+
+
+letters = 'abcdefghijklmnopqrstuvwxyz'
+randomLetter = ->
+    r = Math.random()
+
+    low = 0
+    for [letter, freq] in letterFrequencies
+        high = low + freq
+        if low <= r <= high
+            break
+        low = high
+
+
+    return letter
+
+
+displayAsEmpty = (x) -> x == EMPTY or x == EMPTY_GRAVITY
 
 $.extend(CanvasRenderingContext2D.prototype, {
     saved: (func) ->
@@ -115,13 +163,13 @@ class Point
     add: (otherPt) ->
         new Point(@x + otherPt.x, @y + otherPt.y)
 
-letters = 'abcdefghijklmnopqrstuvwxyz'
-randomLetter = -> letters[Math.floor(Math.random()*(letters.length))]
 
 letterColors = {}
 
 for letter in letters
     letterColors[letter] = Raphael.getColor()
+
+letterColors['~'] = '#000000'
 
 class Player
     constructor: (ctx, @board) ->
@@ -139,11 +187,11 @@ class Player
     down: -> @delta(new Point(0, 1))
 
     delta: (pt) ->
-        callAfter -> sounds.move.play()
         r = @board.rect
         @rect = @rect.translate(pt).clamp(new Rect(r.x, r.y, r.width, r.height-1))
 
     space: (pos) ->
+        playSound(sounds.move)
         if @orientation == HORIZONTAL
             new Point(@rect.x + pos, @rect.y)
         else
@@ -151,11 +199,7 @@ class Player
 
     swapLetters: ->
         words = @board.swap(@space(0), @space(1))
-        words.sort (a, b) -> b.word.length - a.word.length
-        if words.length
-            wordInfo = words[0]
-            @board.removeWord(wordInfo)
-            sounds.word.play()
+        @board.removeLongestWord(words)
 
     draw: (ctx) ->
         x = @rect.x * @board.cellWidth
@@ -175,6 +219,7 @@ class Board
         @rowDelta = 0
         @rect = new Rect(0, 0, @w, @h)
         @cells = []
+        @falls = []
         for y in [0..@h-1]
             row = []
             for x in [0..@w-1]
@@ -189,20 +234,63 @@ class Board
 
     get: (pt) -> @cells[pt.y][pt.x]
 
+    removeLongestWord: (words) ->
+        if words.length
+            words.sort (a, b) -> b.word.length - a.word.length
+            wordInfo = words[0]
+            @removeWord(wordInfo)
+            playSound(sounds.word)
+        @determineFalls()
+
+    testStack: (pt) ->
+        pt = new Point(pt.x, pt.y - 1)
+        while pt.y >= 0
+            if not displayAsEmpty(@get(pt))
+                return true
+            pt.y -= 1
+
+        return false
+
     swap: (pt1, pt2) ->
         a = @get(pt1)
         b = @get(pt2)
 
+        if a == EMPTY_GRAVITY or b == EMPTY_GRAVITY
+            return []
+
         @set(pt1, b)
         @set(pt2, a)
 
-        words = []
-        for row in set([pt1.y, pt2.y])
-            words = words.concat(@testRow(row))
-        for col in set([pt1.x, pt2.x])
-            words = words.concat(@testCol(col))
+        words = @test([pt1, pt2])
         
         return words
+
+    test: (pts) ->
+        words = []
+        for row in (pt.y for pt in pts)
+            words = words.concat(@testRow(row))
+        for col in (pt.x for pt in pts)
+            words = words.concat(@testCol(col))
+        return words
+
+    determineFalls: ->
+        falling = []
+        for y in [0..@rect.height-1]
+            for x in [0..@rect.width-1]
+                pt = new Point(x, y)
+                if @get(pt) == EMPTY and @testStack(pt)
+                    @set(pt, EMPTY_GRAVITY)
+                    falling.push(pt)
+
+        @fallLater(falling)
+
+    fallLater: (cells) ->
+        if cells.length
+            @falls.push(
+                time: @now + 350
+                cells: cells
+            )
+
 
     removeWord: (wordInfo) ->
         pt = new Point(wordInfo.pt)
@@ -210,12 +298,6 @@ class Board
 
         while length--
             @set(pt, EMPTY)
-            fallPt = new Point(pt)
-            for y in [pt.y-1..1]
-                sourceLetter = @get(new Point(fallPt.x, y))
-                dest = new Point(fallPt.x, fallPt.y)
-                @set(dest, sourceLetter)
-                fallPt.y -= 1
             pt = pt.add(new Point(1, 0))
 
         $('#completedWords').append($('<span>').text(wordInfo.word))
@@ -247,6 +329,12 @@ class Board
         return []
     
     process: (delta) ->
+        if not @now
+            @now = delta
+        else
+            @now += delta
+
+        @executeFalls()
         if not @gotNextRow
             @gotNextRow = true
             #nextRow = generateRow()
@@ -255,6 +343,33 @@ class Board
         if @rowDelta > 1
             @newRow()
             @rowDelta = 0
+
+    replaceFutureFalls: (source, dest) ->
+        for fall in @falls
+            for cell in fall.cells
+                if cell.x == source.x and cell.y == dest.y
+                    cell.x = dest.x
+                    cell.y = dest.y
+
+    executeFalls: ->
+        while @falls.length and @falls[0].time < @now
+            fallInfo = @falls.shift()
+            toTest = []
+            for cell in fallInfo.cells
+                fallPt = new Point(cell)
+                for y in [fallPt.y-1..0]
+                    source = new Point(fallPt.x, y)
+                    sourceLetter = @get(source)
+                    dest = new Point(fallPt.x, fallPt.y)
+                    toTest.push(dest)
+                    @replaceFutureFalls(source, dest)
+                    @set(dest, sourceLetter)
+                    fallPt.y -= 1
+                    
+                    if displayAsEmpty(sourceLetter)
+                        break
+
+            @removeLongestWord(@test(toTest))
 
     newRow: ->
         # check for game over state
@@ -272,21 +387,42 @@ class Board
         @trigger('newRow')
 
     draw: () ->
-        x = 0
-        y = 0
-
         @ctx.textAlign = 'center'
         @ctx.textBaseline = 'middle'
 
         clipRect = new Rect(@rect.x, @rect.y, (@rect.width+4)*@cellWidth, (@rect.height-1)*@cellHeight)
 
+        key = (x, y) -> return '' + x + ',' + y
+
+        fallLookup = {}
+        hadLookup = false
+        if @falls.length
+            delta = (@falls[0].time - @now) / @falls[0].time * @cellHeight
+            for cell in @falls[0].cells
+                fallLookup[key(cell.x, cell.y)] = true
+                hadLookup = true
+
+        fallDelta = (x, y) ->
+            if not hadLookup
+                return 0
+            k = key(x, y)
+            if fallLookup[k]
+                console.log(k, 'in')
+                console.log(fallLookup)
+                console.log('yes', delta)
+                return delta
+            else
+                return 0
+
+        x = 0
+        y = 0
         @ctx.clipped clipRect, =>
             @ctx.translate(0, -@rowDeltaPixels())
             for row in @cells
                 for letter in row
-                    if letter != EMPTY
+                    if not displayAsEmpty(letter)
                         xPos = x * @cellWidth
-                        yPos = y * @cellHeight
+                        yPos = y * @cellHeight + fallDelta(x, y)
 
                         # colored background
                         @ctx.fillStyle = letterColors[letter]
@@ -358,8 +494,6 @@ Game = ->
     canvas = $('#gameCanvas')[0]
     canvas.width = gridCellWidth * gameBoard.width
     canvas.height = gridCellHeight * (gameBoard.height-1)
-
-    console.log(canvas.height)
 
     ctx = canvas.getContext('2d')
 
@@ -443,10 +577,12 @@ window.Point = Point
 
 window.sounds = {}
 
+localPath = 'file:///c:/Users/Kevin/src/vocabattack/'
+
 loadSound = (id, name) ->
     sounds[id] = soundManager.createSound
         id: id
-        url: '/sounds/' + name
+        url: localPath + '/sounds/' + name
         autoLoad: true
         autoPlay: false
         volume: 50
@@ -455,12 +591,16 @@ loadSound = (id, name) ->
 window.soundSetup = ->
     $ ->
         soundManager.debugMode = false
-        soundManager.url = '/lib/swf/'
+        soundManager.url = localPath + '/lib/swf/'
         soundManager.onready ->
             loadSound('move', 'move.mp3')
             loadSound('word', 'word.mp3')
 
 callAfter = (func) -> setTimeout(func, 0)
+
+playSound = (sound) ->
+    if false
+        sound.play()
 
 #E ×12, A ×9, I ×9, O ×8, N ×6, R ×6, T ×6, L ×4, S ×4, U ×4
 #D ×4, G ×3
