@@ -646,12 +646,13 @@ loadSound = (id, name) ->
 
 
 window.soundSetup = ->
-    $ ->
-        soundManager.debugMode = false
-        soundManager.url = localPath + '/lib/swf/'
-        soundManager.onready ->
-            loadSound('move', 'move.mp3')
-            loadSound('word', 'word.mp3')
+    if false
+        $ ->
+            soundManager.debugMode = false
+            soundManager.url = localPath + '/lib/swf/'
+            soundManager.onready ->
+                loadSound('move', 'move.mp3')
+                loadSound('word', 'word.mp3')
 
 callAfter = (func) -> setTimeout(func, 0)
 
