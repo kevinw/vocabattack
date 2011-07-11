@@ -778,14 +778,16 @@
     });
   };
   window.soundSetup = function() {
-    return $(function() {
-      soundManager.debugMode = false;
-      soundManager.url = localPath + '/lib/swf/';
-      return soundManager.onready(function() {
-        loadSound('move', 'move.mp3');
-        return loadSound('word', 'word.mp3');
+    if (false) {
+      return $(function() {
+        soundManager.debugMode = false;
+        soundManager.url = localPath + '/lib/swf/';
+        return soundManager.onready(function() {
+          loadSound('move', 'move.mp3');
+          return loadSound('word', 'word.mp3');
+        });
       });
-    });
+    }
   };
   callAfter = function(func) {
     return setTimeout(func, 0);
