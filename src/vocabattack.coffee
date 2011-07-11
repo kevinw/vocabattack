@@ -89,7 +89,7 @@ gameBoard =
 clearCanvas = (canvas) -> canvas.width = canvas.width
 
 window.dictionaryTrie = null
-isWord = (word) ->
+inDictionary = (word) ->
     window.dictionaryTrie.test(word)
 
 keys =
@@ -106,6 +106,21 @@ reqAnim =
   window.oRequestAnimationFrame      ||
   window.msRequestAnimationFrame     ||
   (callback, element) -> window.setTimeout(callback, 1000 / 30)
+
+class WordInfo
+    constructor: (@direction, @pt, @word) ->
+
+    isWord: ->
+        return inDictionary(@word)
+
+    nextPoint: (pt) ->
+        if pt == undefined
+            return new Point(@pt)
+
+        if @direction == HORIZONTAL
+            return pt.add(new Point(1, 0))
+        else
+            return pt.add(new Point(0, 1))
 
 class Rect
     constructor: (x, y, width, height) ->
@@ -217,6 +232,7 @@ class Player
 class Board
     constructor: (@w, @h, @cellWidth, @cellHeight) ->
         @rowDelta = 0
+        @pause = 0
         @rect = new Rect(0, 0, @w, @h)
         @cells = []
         @falls = []
@@ -294,14 +310,17 @@ class Board
 
 
     removeWord: (wordInfo) ->
-        pt = new Point(wordInfo.pt)
-        length = wordInfo.wordLength
-
+        pt = wordInfo.nextPoint()
+        length = wordInfo.word.length
         while length--
             @set(pt, EMPTY)
-            pt = pt.add(new Point(1, 0))
+            pt = wordInfo.nextPoint(pt)
 
         $('#completedWords').append($('<span>').text(wordInfo.word))
+
+        @addPause(600)
+
+    # TODO: consolidate the next two sets of methods
 
     testRow: (row) ->
         words = []
@@ -310,12 +329,25 @@ class Board
             while col + wordWidth < @rect.width+1
                 pt = new Point(col, row)
                 wordInfo = @getHWord(pt, wordWidth)
-                if isWord(wordInfo.word)
+                if wordInfo.isWord()
                     words.push(wordInfo)
                 col += 1
 
         return words
 
+    testCol: (col) ->
+        words = []
+        for wordHeight in [2..@rect.height]
+            row = 0
+            while row + wordHeight < @rect.height+1
+                pt = new Point(col, row)
+                wordInfo = @getVWord(pt, wordHeight)
+                if wordInfo.isWord()
+                    words.push(wordInfo)
+                row += 1
+
+        return words
+    
     getHWord: (pt, wordLength) ->
         wordPt = new Point(pt)
         word = ''
@@ -324,16 +356,20 @@ class Board
             word += @cells[wordPt.y][wordPt.x]
             wordPt.x += 1
             wordLength -= 1
-        return {pt: pt, wordLength: originalWordLength, word: word}
+        return new WordInfo(HORIZONTAL, pt, word)
 
-    testCol: (col) ->
-        return []
-    
+    getVWord: (pt, wordLength) ->
+        wordPt = new Point(pt)
+        word = ''
+        originalWordLength = wordLength
+        while wordLength
+            word += @cells[wordPt.y][wordPt.x]
+            wordPt.y += 1
+            wordLength -= 1
+        return new WordInfo(VERTICAL, pt, word)
+
     process: (delta) ->
-        if not @now
-            @now = delta
-        else
-            @now += delta
+        delta = @processTime(delta)
 
         @executeFalls()
         if not @gotNextRow
@@ -344,6 +380,20 @@ class Board
         if @rowDelta > 1
             @newRow()
             @rowDelta = 0
+
+    processTime: (delta) ->
+        if @pause > 0
+            @pause -= delta
+            return 0
+        else
+            if not @now
+                @now = 0
+
+            @now += delta
+            return delta
+
+    addPause: (pauseTime) ->
+        @pause = pauseTime
 
     replaceFutureFalls: (source, dest) ->
         for fall in @falls
@@ -455,11 +505,22 @@ class Board
         else
             _doit()
 
+    generateCol: (startY, x, ensureNoWords) ->
+        _doit = =>
+            for y in [startY..@rect.height-1]
+                @randomLetterAt(x, y)
+        if ensureNoWords
+            while ensureNoWords
+                _doit()
+                ensureNoWords = board.testCol(x).length > 0
+        else
+            _doit()
+
 
     @generateFreshBoard: (w, h) ->
         board = new Board(w, h, gridCellWidth, gridCellHeight)
 
-        genCol = (startY, x) ->
+        genCol = (startY, x) =>
             for y in [0..h-1]
                 @randomLetterAt(x, y)
 
@@ -479,7 +540,7 @@ class Board
             for col in [0..w-1]
                 while board.testCol(col).length > 0
                     checkAgain = true
-                    genCol(startY, col)
+                    board.generateCol(startY, col)
 
         return board
 
